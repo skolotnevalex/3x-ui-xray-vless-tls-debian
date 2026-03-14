@@ -1,6 +1,6 @@
-﻿# VDS VPN (Debian): Nginx + 3x-ui/Xray + TLS
+﻿# VDS (Debian): Nginx + 3x-ui/Xray + TLS
 
-Репозиторий с конфигами и инструкциями для разворачивания VPN-стека на Debian:
+Репозиторий с конфигами и инструкциями для разворачивания 3x-ui, xray, vless-tls стека на Debian:
 
 - подготовка сервера и SSH-hardening;
 - установка Docker Engine;
