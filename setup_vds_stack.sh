@@ -701,6 +701,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+REPO_DIR="${REPO_DIR:-$SCRIPT_DIR}"
+
 if [ -z "${XUI_DIR:-}" ]; then
   XUI_DIR="$REPO_DIR/3x-ui"
 fi
