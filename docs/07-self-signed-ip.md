@@ -7,12 +7,14 @@
 - `nginx:20530` — self-signed HTTPS для панели `3x-ui` по пути `/3x-secret/`;
 - `nginx:8443` — self-signed HTTPS с тестовой nginx-страницей;
 - `3x-ui` слушает только локально на `127.0.0.1:2053`;
+- `ufw` оставляет открытым SSH-порт и при необходимости открывает `20530/tcp` и `8443/tcp`;
 - позже можно повесить `xray` на `443` и настроить fallback на `8443`.
 
 ## Что делает сценарий
 
 - устанавливает Docker Engine;
 - устанавливает Nginx;
+- устанавливает и настраивает UFW;
 - генерирует self-signed сертификат для IP-адреса;
 - подключает сертификат в два nginx listener: `20530` и `8443`;
 - запускает `3x-ui` через отдельный compose-файл `3x-ui/docker-compose.selfsigned.yml`.
@@ -30,14 +32,44 @@
 ```bash
 git clone <repo-url>
 cd 3x-ui-xray-vless-tls-debian
-sudo bash ./setup_vds_selfsigned_ip.sh --server-ip <SERVER_IP>
+sudo bash ./setup_vds_selfsigned_ip.sh --server-ip <SERVER_IP> --ssh-port 22 --configure-ufw yes --open-ufw yes
 ```
+
+Если SSH у вас не на `22`, обязательно укажите реальный порт в `--ssh-port`, иначе можно потерять доступ.
 
 После выполнения будут доступны два адреса:
 
 ```text
 https://<SERVER_IP>:20530/3x-secret/
 https://<SERVER_IP>:8443/
+```
+
+## UFW и открытие портов
+
+Скрипт умеет:
+
+- установить `ufw`, если он еще не установлен;
+- оставить открытым `SSH_PORT/tcp`;
+- открыть `20530/tcp` для панели nginx;
+- открыть `8443/tcp` для тестового HTTPS listener;
+- включить `ufw` с политикой `deny incoming` и `allow outgoing`.
+
+Полезный пример:
+
+```bash
+sudo bash ./setup_vds_selfsigned_ip.sh \
+  --server-ip <SERVER_IP> \
+  --ssh-port 22 \
+  --configure-ufw yes \
+  --open-ufw yes
+```
+
+Если UFW пока не нужен:
+
+```bash
+sudo bash ./setup_vds_selfsigned_ip.sh \
+  --server-ip <SERVER_IP> \
+  --configure-ufw no
 ```
 
 ## Если нужен другой путь панели
@@ -102,11 +134,13 @@ https://<SERVER_IP>:8443/
 ```bash
 sudo bash ./setup_vds_selfsigned_ip.sh \
   --server-ip <SERVER_IP> \
+  --ssh-port 22 \
+  --configure-ufw yes \
+  --open-ufw yes \
   --panel-path /3x-secret \
   --xui-panel-port 2053 \
   --nginx-panel-port 20530 \
-  --nginx-test-port 8443 \
-  --open-ufw yes
+  --nginx-test-port 8443
 ```
 
 Дополнительные параметры:
@@ -124,6 +158,7 @@ sudo bash ./setup_vds_selfsigned_ip.sh \
 docker ps
 docker compose -f 3x-ui/docker-compose.selfsigned.yml --env-file 3x-ui/.env.selfsigned ps
 sudo nginx -t
+sudo ufw status verbose
 systemctl status nginx --no-pager
 systemctl status docker --no-pager
 ss -ltnp | grep -E ':2053|:20530|:8443'
@@ -135,7 +170,8 @@ curl -k https://<SERVER_IP>:8443/
 
 - браузер все равно будет показывать предупреждение, пока сертификат не добавлен в доверенные;
 - self-signed сертификат подходит для админ-панели и тестового listener, но не заменяет нормальный публичный TLS;
-- этот сценарий не использует Certbot и не требует домена.
+- этот сценарий не использует Certbot и не требует домена;
+- перед включением UFW проверьте, какой SSH-порт реально используется на сервере.
 
 ## Обновление сертификата
 

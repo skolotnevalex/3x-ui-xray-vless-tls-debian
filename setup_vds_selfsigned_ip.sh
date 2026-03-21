@@ -27,6 +27,7 @@ usage() {
 Сценарий:
   - устанавливает Docker Engine из официального репозитория;
   - устанавливает Nginx;
+  - устанавливает и настраивает UFW;
   - генерирует self-signed сертификат для IP-адреса;
   - настраивает Nginx на два HTTPS listener:
     * 20530 -> /3x-secret/ -> локальная панель 3x-ui на 127.0.0.1:2053
@@ -37,6 +38,9 @@ usage() {
   --repo-dir <path>                   Путь к репозиторию на сервере.
   --server-ip <IPv4>                  IP-адрес сервера для сертификата и server_name.
   --panel-path <path>                 Внешний путь панели в Nginx (по умолчанию: /3x-secret).
+
+  --configure-ufw <yes|no|ask>        Устанавливать и настраивать UFW (по умолчанию: ask).
+  --ssh-port <port>                   SSH-порт, который нужно оставить открытым в UFW (по умолчанию: 22).
   --open-ufw <yes|no|ask>             Открывать 20530/8443 в UFW (по умолчанию: ask).
 
   --xui-image <image>                 Docker image 3x-ui.
@@ -61,7 +65,7 @@ usage() {
 
 Примеры:
   sudo bash ./setup_vds_selfsigned_ip.sh --server-ip 203.0.113.10
-  sudo bash ./setup_vds_selfsigned_ip.sh --server-ip 203.0.113.10 --panel-path /admin
+  sudo bash ./setup_vds_selfsigned_ip.sh --server-ip 203.0.113.10 --ssh-port 2222 --configure-ufw yes --open-ufw yes
 EOF
 }
 
@@ -154,27 +158,69 @@ auto_detect_server_ip() {
   printf '%s' "$detected"
 }
 
-maybe_open_ufw_ports() {
-  if ! command -v ufw >/dev/null 2>&1; then
-    log "UFW не установлен, этап изменения firewall пропущен"
+install_and_configure_ufw() {
+  if ! is_yes "$CONFIGURE_UFW"; then
+    log "Настройка UFW отключена"
     return 0
   fi
 
-  case "${OPEN_UFW:-ask}" in
+  log "Установка и настройка UFW"
+  apt update -y
+  apt install -y ufw
+
+  ufw allow "${SSH_PORT}/tcp"
+  log "Оставляю открытым SSH-порт ${SSH_PORT}/tcp"
+
+  if is_yes "$OPEN_UFW"; then
+    ufw allow "${NGINX_PANEL_PORT}/tcp"
+    ufw allow "${NGINX_TEST_PORT}/tcp"
+    log "Открываю в UFW порты ${NGINX_PANEL_PORT}/tcp и ${NGINX_TEST_PORT}/tcp"
+  else
+    log "Порты ${NGINX_PANEL_PORT}/tcp и ${NGINX_TEST_PORT}/tcp не открываю"
+  fi
+
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw --force enable
+  ufw status verbose || true
+}
+
+maybe_configure_ufw() {
+  case "${CONFIGURE_UFW:-ask}" in
     yes|YES|y|Y)
-      log "Открываю в UFW порты ${NGINX_PANEL_PORT}/tcp и ${NGINX_TEST_PORT}/tcp"
-      ufw allow "${NGINX_PANEL_PORT}/tcp"
-      ufw allow "${NGINX_TEST_PORT}/tcp"
+      CONFIGURE_UFW="yes"
       ;;
     no|NO|n|N)
-      log "Оставляю UFW без изменений"
+      CONFIGURE_UFW="no"
       ;;
     ask|"")
-      if confirm "Открыть в UFW порты ${NGINX_PANEL_PORT}/tcp и ${NGINX_TEST_PORT}/tcp?"; then
-        ufw allow "${NGINX_PANEL_PORT}/tcp"
-        ufw allow "${NGINX_TEST_PORT}/tcp"
+      if confirm "Установить и настроить UFW, оставив SSH-порт ${SSH_PORT}/tcp открытым?"; then
+        CONFIGURE_UFW="yes"
       else
-        log "Оставляю UFW без изменений"
+        CONFIGURE_UFW="no"
+      fi
+      ;;
+    *)
+      die "CONFIGURE_UFW должен быть yes|no|ask, сейчас: ${CONFIGURE_UFW:-<empty>}"
+      ;;
+  esac
+
+  case "${OPEN_UFW:-ask}" in
+    yes|YES|y|Y)
+      OPEN_UFW="yes"
+      ;;
+    no|NO|n|N)
+      OPEN_UFW="no"
+      ;;
+    ask|"")
+      if [ "$CONFIGURE_UFW" = "yes" ]; then
+        if confirm "Открыть в UFW порты ${NGINX_PANEL_PORT}/tcp и ${NGINX_TEST_PORT}/tcp?"; then
+          OPEN_UFW="yes"
+        else
+          OPEN_UFW="no"
+        fi
+      else
+        OPEN_UFW="no"
       fi
       ;;
     *)
@@ -213,7 +259,6 @@ install_nginx() {
   apt update -y
   apt install -y nginx openssl
   systemctl enable --now nginx
-  maybe_open_ufw_ports
 }
 
 generate_self_signed_cert() {
@@ -296,7 +341,9 @@ start_xui() {
 main() {
   NON_INTERACTIVE="no"
   REPO_DIR="$SCRIPT_DIR"
+  CONFIGURE_UFW="ask"
   OPEN_UFW="ask"
+  SSH_PORT="22"
 
   XUI_IMAGE="ghcr.io/mhsanaei/3x-ui:latest"
   XUI_CONTAINER_NAME="3xui_selfsigned"
@@ -322,6 +369,14 @@ main() {
         ;;
       --panel-path)
         PANEL_PATH="$2"
+        shift 2
+        ;;
+      --configure-ufw)
+        CONFIGURE_UFW="$2"
+        shift 2
+        ;;
+      --ssh-port)
+        SSH_PORT="$2"
         shift 2
         ;;
       --open-ufw)
@@ -419,10 +474,15 @@ main() {
   SERVER_IP="${SERVER_IP:-$(auto_detect_server_ip)}"
   prompt_if_empty SERVER_IP "IP-адрес сервера для сертификата и доступа к панели"
 
+  maybe_configure_ufw
+
   log "Сводка параметров"
   printf '  REPO_DIR=%s\n' "$REPO_DIR"
   printf '  SERVER_IP=%s\n' "$SERVER_IP"
   printf '  PANEL_PATH=%s\n' "$PANEL_PATH"
+  printf '  SSH_PORT=%s\n' "$SSH_PORT"
+  printf '  CONFIGURE_UFW=%s\n' "$CONFIGURE_UFW"
+  printf '  OPEN_UFW=%s\n' "$OPEN_UFW"
   printf '  XUI_PANEL_PORT=%s\n' "$XUI_PANEL_PORT"
   printf '  NGINX_PANEL_PORT=%s\n' "$NGINX_PANEL_PORT"
   printf '  NGINX_TEST_PORT=%s\n' "$NGINX_TEST_PORT"
@@ -430,6 +490,7 @@ main() {
 
   install_docker
   install_nginx
+  install_and_configure_ufw
   generate_self_signed_cert
   write_compose_env
   start_xui
@@ -438,6 +499,7 @@ main() {
   log "Готово"
   printf 'Панель: https://%s:%s%s\n' "$SERVER_IP" "$NGINX_PANEL_PORT" "$PANEL_PATH_WITH_SLASH"
   printf 'Тестовый Nginx: https://%s:%s/\n' "$SERVER_IP" "$NGINX_TEST_PORT"
+  printf 'SSH в UFW: %s/tcp\n' "$SSH_PORT"
   printf 'В браузере будет предупреждение, пока self-signed сертификат не добавлен в доверенные.\n'
 }
 
