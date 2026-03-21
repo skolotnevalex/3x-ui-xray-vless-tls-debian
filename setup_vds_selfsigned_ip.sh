@@ -320,6 +320,13 @@ deploy_nginx_config() {
     "$NGINX_TEMPLATE" >"$NGINX_SITE_CONF"
 
   ln -sfn "$NGINX_SITE_CONF" "$NGINX_SITE_ENABLED"
+
+  if [ -L /etc/nginx/sites-enabled/default ] || [ -f /etc/nginx/sites-enabled/default ]; then
+    backup_if_exists /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-enabled/default
+    log "Отключаю /etc/nginx/sites-enabled/default, чтобы не оставлять лишний сайт в конфигурации"
+  fi
+
   nginx -t
   systemctl reload nginx
 }
