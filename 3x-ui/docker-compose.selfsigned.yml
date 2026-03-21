@@ -1,0 +1,14 @@
+services:
+  3xui:
+    image: ${THREEXUI_IMAGE:-ghcr.io/mhsanaei/3x-ui:latest}
+    container_name: ${THREEXUI_CONTAINER_NAME:-3xui_selfsigned}
+    hostname: ${THREEXUI_HOSTNAME:-3x-ui-selfsigned}
+    volumes:
+      - ${THREEXUI_DB_DIR:-./db-selfsigned}:/etc/x-ui/
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      XUI_ENABLE_FAIL2BAN: "true"
+    ports:
+      - "${THREEXUI_PANEL_BIND:-127.0.0.1}:${THREEXUI_PANEL_PORT:-2053}:2053"
+    tty: true
+    restart: unless-stopped
