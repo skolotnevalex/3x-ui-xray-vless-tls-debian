@@ -11,4 +11,5 @@ services:
     ports:
       - "${THREEXUI_PANEL_BIND:-127.0.0.1}:${THREEXUI_PANEL_PORT:-2053}:2053"
     tty: true
+    network_mode: host
     restart: unless-stopped
